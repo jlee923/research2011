@@ -16,10 +16,28 @@ public:
 // Global Variables
 //****************************************************
 Viewport viewport;
-//Map * map;
 UCB::ImageSaver * imgSaver;
-Net n(4);
+Group instance;
+int genus;
+Sector *s,*p;
+vector<Sector*> sectors;
+// pathing
+bool split = false, merging = false, path = false, newPath = false;
+// vertices
+bool addVertex = false;
 
+/* pathEdge corresponds to: (after both edges split, before sector division)
+ *  |                    ^
+ *  | <-- this edge      |
+ *  v                    |
+ *  |                    ^
+ *  |                    |
+ *  v                    |
+ */
+HalfEdge * pathEdge = NULL;
+
+vec2 prevClick; // world coordinates of previous click
+int oper = 0; // current region that is being operated on
 
 //-------------------------------------------------------------------------------
 /// Functions
@@ -42,24 +60,9 @@ void display() {
     glClear(GL_COLOR_BUFFER_BIT);
 	glMatrixMode(GL_MODELVIEW);					// indicate we are specifying camera transformations
 	glLoadIdentity();							// make sure transformation is "zero'd"
+	
+	instance.draw();
 
-	//map->draw();
-	
-	//test 
-	/*
-	vector<vec2> v;
-	v.push_back(vec2(0.5,0.5));
-	v.push_back(vec2(0.0,0.5));
-	v.push_back(vec2(0.0,0.0));
-	v.push_back(vec2(0.5,0.0));
-	
-	Sector s(v);
-	s.draw();
-	*/
-	
-	n.draw();
-	
-	
 	//Now that we've drawn on the buffer, swap the drawing buffer and the displaying buffer.
 	glutSwapBuffers();
 
@@ -92,6 +95,78 @@ void myKeyboardFunc (unsigned char key, int x, int y) {
 		case 27:			// Escape key
 			exit(0);
 			break;
+
+		case 'n':
+			cout << "Starting a new path" << endl;
+			path = true;
+			//newPath = true;
+			break;
+
+		case 'e':
+			cout << "Ending path" << endl;
+			if (newPath && (pathEdge != NULL)) {
+				// revert edges
+			}
+			path = false;
+			prevClick = NULL;
+			break;
+
+		case 'u':
+			if (!path) {
+				cout << "nothing to undo (path deleted)" << endl;
+				break;
+			}
+			cout << "Undo last move" << endl;
+			HalfEdge * deletedEdge = pathEdge->getForwardEdge()->getSibling()->getForwardEdge()->getSibling();
+			if (deletedEdge == pathEdge) {
+				cout << "revertting original edge and ending path" << endl;
+				Sector::mergeEdges(pathEdge);
+				path = false;
+				prevClick = NULL;
+				pathEdge = NULL;
+				glutPostRedisplay();
+				break;
+			}
+			HalfEdge * newPathEdge;
+			newPathEdge = pathEdge->getSibling();
+			while(newPathEdge->getForwardEdge() != deletedEdge) {
+				newPathEdge = newPathEdge->getForwardEdge();
+			}
+
+			instance.removeSector(Sector::undoPath(pathEdge));
+
+			pathEdge = newPathEdge;
+			cout << "success?" << endl;
+			glutPostRedisplay();
+			break;
+
+		case 'v':
+			cout << "Ending path (if applicable) and adding vertex" << endl;
+			addVertex = true;
+			path = false;
+			prevClick = NULL;
+			break;
+		/*
+		case 's':
+			cout << "Spliting ON" << endl;
+			split = true;
+			pathEdge = splitEdge1 = splitEdge2 = NULL;
+			splitSectorEdges.clear();
+			cout << "with splitsectur edges " << splitSectorEdges.empty() << endl;
+			break;
+		case 'm':
+			cout << "Merging ON" << endl;
+			merging = true;
+			mergeEdge = NULL;
+			break;
+		case 'p':
+			cout << "Connect Path ON" << endl;
+			path = true;
+			pathEdge = splitEdge1 = splitEdge2 = NULL;
+			splitSectorEdges.clear();
+			pathSectorEdges.clear();
+			break;
+			*/
 	}
 }
 
@@ -108,7 +183,6 @@ vec2 inverseViewportTransform(vec2 screenCoords) {
     viewCoords[1] = ((float)screenCoords[1] - viewport.h/2)/((float)(viewport.h/2));
     //Flip the values to get the correct position relative to our coordinate axis.
     viewCoords[1] = -viewCoords[1];
-
     //C++ will copy the whole vec2 to the calling function.
     return viewCoords;
 }
@@ -122,11 +196,457 @@ void myMouseFunc( int button, int state, int x, int y ) {
     vec2 viewCoords = inverseViewportTransform(screenCoords);
 
 	if ( button==GLUT_LEFT_BUTTON && state==GLUT_DOWN ) {
-		cout << "Mouseclick at " << viewCoords[0] << "," << viewCoords[1] << "." << endl;
+		HalfEdge * edgeFound = NULL; 
+		vec2 worldClick = inverseViewportTransform(vec2((double) x,(double)y));
 
-		//YOUR CODE HERE
-		//possible do something with the tempVertex?
+		printf("%d, %d, %f, %f\n", x, y, worldClick[0], worldClick[1]);
+		//cout << "Mouseclick at " << viewCoords[0] << "," << viewCoords[1] << "." << endl;
+		//cout << "Clicked at world coord " << worldClick << endl;
+		vec2 newClick2;
+		vec2 newClick1 = instance.translateClick(&worldClick, &newClick2);
 
+		vector<HalfEdge*> edges;
+		edges = instance.getHalfEdges();
+		cout << "Getting all halfedges" << endl;
+
+		for(vector<HalfEdge*>::iterator it=edges.begin();it!=edges.end();it++){
+			if ((*it)->pointOnEdge(newClick1) || (*it)->pointOnEdge(newClick2)){
+				edgeFound = *it;
+				HalfEdge * blah = edgeFound;
+				cout << "Found Edge: " << edgeFound->getID() << "; sibling is: " << edgeFound->getSibling()->getID() 
+					 << "; forward is: " << edgeFound->getForwardEdge()->getID() 
+					 << "; with sector: " << edgeFound->getSector()->getLabel()<< endl;
+			}
+		}
+
+		cout << "something else" << endl;
+		
+		if (path && (edgeFound != NULL)) {
+			if (!edgeFound->canPass()) {
+				cout << "NOT ALLOWED TO PASS THROUGH HERE" << endl;
+				return;
+			}
+			if (prevClick == NULL) {
+				prevClick = worldClick;
+				cout << "Split the clicked edge" << endl;
+				// do it here?
+				pathEdge = edgeFound->getSector()->splitEdge(edgeFound);
+				newPath = true;
+			} else {
+				//cout << worldClick[0] << " blahblahblah " << prevClick[0] << endl;.
+				if (newPath) {
+					/* Simply do a first-edge orientation.  Then, don't need to such a long loop for the
+					 * rest of the path.
+					 * 
+					 * the numbers might need to be updated, if you use a change of dimens --> might want 
+					 * to make that a global thing.
+					 */
+					if (worldClick[0] - prevClick[0] > 0.0125) {
+					cout << "going right" << endl;
+					HalfEdge * locals = pathEdge;
+					while (!(Sector::isSameSector(pathEdge, edgeFound) && 
+						edgeFound->getPos(1.0)[0] >= min(pathEdge->getPos(0.0)[0], pathEdge->getPos(1.0)[0]))) {	
+						if (Sector::isSameSector(pathEdge, edgeFound->getSibling()) &&
+							edgeFound->getSibling()->getPos(0.0)[0] >= min(pathEdge->getPos(0.0)[0], pathEdge->getPos(1.0)[0])) {
+								edgeFound = edgeFound->getSibling();
+								//break;
+						} 
+						else if (Sector::isSameSector(pathEdge->getForwardEdge()->getSibling(), edgeFound) &&
+							edgeFound->getPos(0.0)[0] >= min(pathEdge->getForwardEdge()->getSibling()->getPos(0.0)[0], pathEdge->getForwardEdge()->getSibling()->getPos(1.0)[0])) {
+								pathEdge = pathEdge->getForwardEdge()->getSibling();
+								//break;
+						} 
+						else if (Sector::isSameSector(pathEdge->getForwardEdge()->getSibling(), edgeFound->getSibling()) &&
+							edgeFound->getSibling()->getPos(0.0)[0] >= min(pathEdge->getForwardEdge()->getSibling()->getPos(0.0)[0], pathEdge->getForwardEdge()->getSibling()->getPos(1.0)[0])) {
+								edgeFound = edgeFound->getSibling();
+								pathEdge = pathEdge->getForwardEdge()->getSibling();
+								//break;
+						} 
+						else {
+							cout << "failed" << endl;
+							return;
+						}
+					}
+					if (edgeFound == pathEdge) {
+						cout << "same edge" << endl;
+						return;
+					}	
+					edgeFound->getSector()->splitEdge(edgeFound);
+					////
+					cout << "Found Edge: " << edgeFound->getID() << "; sibling is: " << edgeFound->getSibling()->getID() 
+					 << "; forward is: " << edgeFound->getForwardEdge()->getID() 
+					 << "; with sector: " << edgeFound->getSector()->getLabel()<< endl;
+					cout << "Prev Edge: " << pathEdge->getID() << "; sibling is: " << pathEdge->getSibling()->getID() 
+					 << "; forward is: " << pathEdge->getForwardEdge()->getID() 
+					 << "; with sector: " << pathEdge->getSector()->getLabel()<< endl;
+					///
+					HalfEdge * pathForward = edgeFound->getForwardEdge()->getSibling();
+					instance.addSector(pathEdge->getSector()->divide(pathEdge, edgeFound));
+					
+					pathEdge = pathForward;
+					if (worldClick[0] > 0.9 - 0.0125) {
+						prevClick = worldClick;
+						prevClick[0] = -prevClick[0];
+					} else {
+						prevClick = worldClick;
+					}
+
+					if (abs(worldClick[1]) > 0.85 - 0.0125) {
+						prevClick = worldClick;
+						prevClick[1] = -prevClick[1];
+					} else {
+						prevClick = worldClick;
+					}
+
+				} 
+				else if (worldClick[0] - prevClick[0] < -0.0125) {
+					// click went left
+					cout << "click went left" << endl;
+					while (!(Sector::isSameSector(pathEdge, edgeFound) &&
+						edgeFound->getPos(1.0)[0] <= max(pathEdge->getPos(0.0)[0], pathEdge->getPos(1.0)[0]))) {
+						if (Sector::isSameSector(pathEdge, edgeFound->getSibling()) &&
+							edgeFound->getSibling()->getPos(1.0)[0] <= max(pathEdge->getPos(0.0)[0], pathEdge->getPos(1.0)[0])) {
+							edgeFound = edgeFound->getSibling();
+						} 
+						else if (Sector::isSameSector(pathEdge->getForwardEdge()->getSibling(), edgeFound) &&
+							edgeFound->getPos(0.0)[0] <= max(pathEdge->getForwardEdge()->getSibling()->getPos(0.0)[0], pathEdge->getForwardEdge()->getSibling()->getPos(1.0)[0])) {
+								pathEdge = pathEdge->getForwardEdge()->getSibling();
+								break;
+						} 
+						else if (Sector::isSameSector(pathEdge->getForwardEdge()->getSibling(), edgeFound->getSibling()) &&
+							edgeFound->getSibling()->getPos(0.0)[0] <= max(pathEdge->getForwardEdge()->getSibling()->getPos(0.0)[0], pathEdge->getForwardEdge()->getSibling()->getPos(1.0)[1])) {
+								edgeFound = edgeFound->getSibling();
+								pathEdge = pathEdge->getForwardEdge()->getSibling();
+								break;
+						} else {
+							cout << "failed" << endl;
+							return;
+						}
+					}
+					if (edgeFound == pathEdge) {
+						cout << "same edge" << endl;
+						return;
+					}
+					edgeFound->getSector()->splitEdge(edgeFound);
+					/////
+					cout << "Found Edge: " << edgeFound->getID() << "; sibling is: " << edgeFound->getSibling()->getID() 
+					 << "; forward is: " << edgeFound->getForwardEdge()->getID() 
+					 << "; with sector: " << edgeFound->getSector()->getLabel()<< endl;
+					cout << "Prev Edge: " << pathEdge->getID() << "; sibling is: " << pathEdge->getSibling()->getID() 
+					 << "; forward is: " << pathEdge->getForwardEdge()->getID() 
+					 << "; with sector: " << pathEdge->getSector()->getLabel()<< endl;
+					////
+					HalfEdge * pathForward = edgeFound->getForwardEdge()->getSibling();
+					instance.addSector(pathEdge->getSector()->divide(pathEdge, edgeFound));
+					
+					pathEdge = pathForward;
+					if (worldClick[0] < -0.9 + 0.0125) {
+						prevClick = worldClick;
+						prevClick[0] = -prevClick[0];
+					} else {
+						prevClick = worldClick;
+					}
+
+					if (abs(worldClick[1]) > 0.85 - 0.0125) {
+						prevClick = worldClick;
+						prevClick[1] = -prevClick[1];
+					} else {
+						prevClick = worldClick;
+					}
+				} 
+			///////////////////////////////////////////////////////////
+				else if (abs(worldClick[0] - prevClick[0]) < 0.0125) {
+					// click has same x coordinate, depend on y
+					cout << "click directly up or down" << endl;
+					if (worldClick[1] - prevClick[1] > 0.0125) {
+						//click up
+						cout << "click up" << endl;
+						while (!(Sector::isSameSector(pathEdge, edgeFound) &&
+							edgeFound->getPos(0.0)[1] >= pathEdge->getPos(0.0)[1])) {
+							if (Sector::isSameSector(pathEdge, edgeFound->getSibling()) &&
+								edgeFound->getSibling()->getPos(0.0)[1] > pathEdge->getPos(0.0)[1]) {
+								edgeFound = edgeFound->getSibling();
+							} 
+							else if (Sector::isSameSector(pathEdge->getForwardEdge()->getSibling(), edgeFound) &&
+								edgeFound->getPos(0.0)[0] >= min(pathEdge->getForwardEdge()->getSibling()->getPos(0.0)[1], pathEdge->getForwardEdge()->getSibling()->getPos(1.0)[1])) {
+									pathEdge = pathEdge->getForwardEdge()->getSibling();
+									//break;
+							} 
+							else if (Sector::isSameSector(pathEdge->getForwardEdge()->getSibling(), edgeFound->getSibling()) &&
+								edgeFound->getSibling()->getPos(0.0)[0] >= min(pathEdge->getForwardEdge()->getSibling()->getPos(0.0)[1], pathEdge->getForwardEdge()->getSibling()->getPos(1.0)[1])) {
+									edgeFound = edgeFound->getSibling();
+									pathEdge = pathEdge->getForwardEdge()->getSibling();
+									//break;
+							} else {
+								cout << "failed" << endl;
+								return;
+							}
+						}
+						if (edgeFound == pathEdge) {
+							cout << "same edge" << endl;
+							return;
+						}
+						edgeFound->getSector()->splitEdge(edgeFound);
+						/////
+						cout << "Found Edge: " << edgeFound->getID() << "; sibling is: " << edgeFound->getSibling()->getID() 
+						 << "; forward is: " << edgeFound->getForwardEdge()->getID() 
+						 << "; with sector: " << edgeFound->getSector()->getLabel()<< endl;
+						cout << "Prev Edge: " << pathEdge->getID() << "; sibling is: " << pathEdge->getSibling()->getID() 
+						 << "; forward is: " << pathEdge->getForwardEdge()->getID() 
+						 << "; with sector: " << pathEdge->getSector()->getLabel()<< endl;
+						////
+						HalfEdge * pathForward = edgeFound->getForwardEdge()->getSibling();
+						instance.addSector(pathEdge->getSector()->divide(pathEdge, edgeFound));
+					
+						pathEdge = pathForward;
+						if (worldClick[0] < -0.9 + 0.0125) {
+							prevClick = worldClick;
+							prevClick[0] = -prevClick[0];
+						} else {
+							prevClick = worldClick;
+						}
+
+						if (abs(worldClick[1]) > 0.85 - 0.0125) {
+							prevClick = worldClick;
+							prevClick[1] = -prevClick[1];
+						} else {
+							prevClick = worldClick;
+						}
+
+
+					} else if (worldClick[1] - prevClick[1] < -0.0125) {
+						// click down
+						cout << "click down" << endl;
+						while (!(Sector::isSameSector(pathEdge, edgeFound) &&
+							edgeFound->getPos(0.0)[1] <= pathEdge->getPos(0.0)[1])) {
+							if (Sector::isSameSector(pathEdge, edgeFound->getSibling()) &&
+								edgeFound->getSibling()->getPos(0.0)[1] < pathEdge->getPos(0.0)[1]) {
+									edgeFound = edgeFound->getSibling();
+							} else if (Sector::isSameSector(pathEdge->getForwardEdge()->getSibling(), edgeFound) &&
+								edgeFound->getPos(0.0)[0] <= max(pathEdge->getForwardEdge()->getSibling()->getPos(0.0)[0], pathEdge->getForwardEdge()->getSibling()->getPos(1.0)[0])) {
+									pathEdge = pathEdge->getForwardEdge()->getSibling();
+									//break;
+							} 
+							else if (Sector::isSameSector(pathEdge->getForwardEdge()->getSibling(), edgeFound->getSibling()) &&
+								edgeFound->getSibling()->getPos(0.0)[0] <= max(pathEdge->getForwardEdge()->getSibling()->getPos(0.0)[0], pathEdge->getForwardEdge()->getSibling()->getPos(1.0)[1])) {
+									edgeFound = edgeFound->getSibling();
+									pathEdge = pathEdge->getForwardEdge()->getSibling();
+									//break;
+							} else {
+								cout << "failed" << endl;
+								return;
+							}
+						}
+						if (edgeFound == pathEdge) {
+							cout << "same edge" << endl;
+							return;
+						}
+						edgeFound->getSector()->splitEdge(edgeFound);
+						/////
+						cout << "Found Edge: " << edgeFound->getID() << "; sibling is: " << edgeFound->getSibling()->getID() 
+						 << "; forward is: " << edgeFound->getForwardEdge()->getID() 
+						 << "; with sector: " << edgeFound->getSector()->getLabel()<< endl;
+						cout << "Prev Edge: " << pathEdge->getID() << "; sibling is: " << pathEdge->getSibling()->getID() 
+						 << "; forward is: " << pathEdge->getForwardEdge()->getID() 
+						 << "; with sector: " << pathEdge->getSector()->getLabel()<< endl;
+						////
+						HalfEdge * pathForward = edgeFound->getForwardEdge()->getSibling();
+						instance.addSector(pathEdge->getSector()->divide(pathEdge, edgeFound));
+						
+						pathEdge = pathForward;
+						if (worldClick[0] < -0.9 + 0.0125) {
+							prevClick = worldClick;
+							prevClick[0] = -prevClick[0];
+						} else {
+							prevClick = worldClick;
+						}
+
+						if (abs(worldClick[1]) > 0.85 - 0.0125) {
+							prevClick = worldClick;
+							prevClick[1] = -prevClick[1];
+						} else {
+							prevClick = worldClick;
+						}
+
+					} else {
+						// You clicked the exact same place
+						cout << "you clicked the same location" << endl;
+					}
+				} 
+			///////////////////////////////////////////////////////////
+				else {
+					// default case?
+					cout << "um.... ?" << endl;
+				}
+				newPath = false;
+			} else {
+				if (!pathEdge->getSector()->isSameSector(pathEdge, edgeFound)) {
+					if (pathEdge->getSector()->isSameSector(pathEdge, edgeFound->getSibling())) {
+						edgeFound = edgeFound->getSibling();
+					} else {
+						cout << "invalid edge" << endl;
+						return;
+					}
+				}
+				if (edgeFound == pathEdge || edgeFound == pathEdge->getForwardEdge()) {
+					cout << "same edge" << endl;
+					return;
+				}
+				edgeFound->getSector()->splitEdge(edgeFound);
+
+				cout << "Found Edge: " << edgeFound->getID() << "; sibling is: " << edgeFound->getSibling()->getID() 
+					<< "; forward is: " << edgeFound->getForwardEdge()->getID() 
+					<< "; with sector: " << edgeFound->getSector()->getLabel()<< endl;
+				cout << "Prev Edge: " << pathEdge->getID() << "; sibling is: " << pathEdge->getSibling()->getID() 
+					<< "; forward is: " << pathEdge->getForwardEdge()->getID() 
+					<< "; with sector: " << pathEdge->getSector()->getLabel()<< endl;
+				////
+				HalfEdge * pathForward = edgeFound->getForwardEdge()->getSibling();
+				instance.addSector(pathEdge->getSector()->divide(pathEdge, edgeFound));
+				
+				pathEdge = pathForward;
+				if (worldClick[0] < -0.9 + 0.0125) {
+					prevClick = worldClick;
+					prevClick[0] = -prevClick[0];
+				} else {
+					prevClick = worldClick;
+				}
+
+				if (abs(worldClick[1]) > 0.85 - 0.0125) {
+					prevClick = worldClick;
+					prevClick[1] = -prevClick[1];
+				} else {
+					prevClick = worldClick;
+				}
+
+			}
+			cout << "reached end of if" << endl;
+			}
+		} else {
+			if (path) {
+				cout << "AM I HERE??" << endl;
+				// I have a path... so, place an intermediate vertex at the specified location --> do it here?
+			}
+			cout << "IN THE ELSE CASE" << endl;
+			map<unsigned int,Sector*> sectors = instance.getSectors();
+			for(map<unsigned int,Sector*>::iterator it=sectors.begin(); it!=sectors.end(); it++){
+				if(it->second->pointInSector(newClick1)) { // won't be newClick2, since that is untranslated
+				
+					if ((split || (path && pathEdge != NULL))) {
+						//splitSectorEdges = it->second->getBounds();
+						cout << " try here " << endl;
+					}
+					else if (path) {// && pathSectorEdges.empty()){
+						//pathSectorEdges = it->second->getBounds();
+						cout << " it got here " << endl;
+					}
+					vector<HalfEdge*> b = it->second->getBounds();
+					cout << "Found Sector "<< it->second->getLabel()<< " with:" << endl;
+					for(vector<HalfEdge*>::iterator jt = b.begin();jt!=b.end();jt++) {
+						cout << "\tedge " << (*jt)->getID() << endl;
+					}
+				}
+			}
+
+		}
+
+
+		/*
+		vector<HalfEdge*> edges;
+		if ((split || (path && pathEdge != NULL)) && !splitSectorEdges.empty()) {
+			edges = splitSectorEdges;
+			cout << "LOOK HERE" << endl;
+		}
+		else if (path && !pathSectorEdges.empty())
+			edges = pathSectorEdges;
+		else {
+			edges = instance.getHalfEdges();
+			cout << "LOOK HERE INSTEAD " << path << " " << !pathSectorEdges.empty() << endl;
+		}
+		for(vector<HalfEdge*>::iterator it=edges.begin();it!=edges.end();it++){
+			if ((*it)->pointOnEdge(newClick1) || (*it)->pointOnEdge(newClick2)){
+				edgeFound = *it;
+				cout << "Found Edge: " << edgeFound->getID() << "; sibling is: " << edgeFound->getSibling()->getID() 
+					 << "; forward is: " << edgeFound->getForwardEdge()->getID() 
+					 << "; with sector: " << edgeFound->getSector()->getLabel()<< endl;
+			}
+		}
+		if (edgeFound != NULL){
+			if (path && pathEdge == NULL) {
+				pathEdge = edgeFound;
+				cout << "Path Edge 1: " << pathEdge->getID() << " starting at: " << pathEdge->getPos(0.0) 
+					 << " ending at: " << pathEdge->getForwardEdge()->getPos(0.0) 
+					 << " sibling is: " << pathEdge->getSibling()->getID() << endl;
+			} else if (merging) {
+				// re-do memory in region?
+				instance.removeSector(edgeFound->getSector());
+				instance.removeSector(edgeFound->getSibling()->getSector());
+				instance.addSector(Sector::merge(edgeFound));
+				merging = false;
+				cout << "Merge OFF " << endl;
+			} else if ((split || path) && splitEdge1 == NULL) {
+				splitEdge1 = edgeFound;
+				cout << "Split Edge 1: " << splitEdge1->getID() << " starting at: " << splitEdge1->getPos(0.0) 
+					 << " ending at: " << splitEdge1->getForwardEdge()->getPos(0.0) 
+					 << " sibling is: " << splitEdge1->getSibling()->getID() << endl;
+			} else if (split) {
+				if (edgeFound == splitEdge1) {
+					cout << "Picked same edge, try again" << endl;
+				} else {
+					if (splitEdge1->getSector() == edgeFound->getSector()) {
+						//cool.
+					} else if (splitEdge1->getSector() == edgeFound->getSibling()->getSector()) {
+						edgeFound = edgeFound->getSibling();
+					} else if (splitEdge1->getSibling()->getSector() == edgeFound->getSector()) {
+						splitEdge1 = splitEdge1->getSibling();
+					} else if (splitEdge1->getSibling()->getSector() == edgeFound->getSibling()->getSector()){
+						splitEdge1 = splitEdge1->getSibling();
+						edgeFound = edgeFound->getSibling();
+					}
+					
+					splitEdge2 = edgeFound;
+					cout << "Split Edge 2: " << splitEdge2->getID() << " starting at: " << splitEdge2->getPos(0.0) 
+						 << " ending at: " << splitEdge2->getForwardEdge()->getPos(0.0) 
+						 << " sibling is: " << splitEdge2->getSibling()->getID() << endl;
+					instance.addSector(Sector::split(splitEdge1, splitEdge2));
+					split = false;
+					cout << "Splitting OFF" << endl;
+				}
+				
+			} else if (path) {
+				splitEdge2 = edgeFound;
+			
+				cout << "PATH: Split Edge 2: " << splitEdge2->getID() << " starting at: " << splitEdge2->getPos(0.0) << " ending at: " << splitEdge2->getForwardEdge()->getPos(0.0) 
+					<< " sibling is: " << splitEdge2->getSibling()->getID() << endl;
+				Sector * sect = Sector::split(pathEdge,splitEdge1,splitEdge2);
+				if (sect != NULL) {
+					cout << "did not make a sector " << endl;
+					instance.addSector(sect);
+				}
+				path = false;
+				cout << "Path OFF" << endl;
+			}
+		} else {
+			map<unsigned int,Sector*> sectors = instance.getSectors();
+			for(map<unsigned int,Sector*>::iterator it=sectors.begin(); it!=sectors.end(); it++){
+				if(it->second->pointInSector(newClick1)) { // won't be newClick2, since it's the next region
+				
+					if ((split || (path && pathEdge != NULL)) && splitSectorEdges.empty()) {
+						splitSectorEdges = it->second->getBounds();
+						cout << " try here " << endl;
+					}
+					else if (path && pathSectorEdges.empty()){
+						pathSectorEdges = it->second->getBounds();
+						cout << " it got here " << endl;
+					}
+					vector<HalfEdge*> b = it->second->getBounds();
+					cout << "Found Sector "<< it->second->getLabel()<< " with:" << endl;
+					for(vector<HalfEdge*>::iterator jt = b.begin();jt!=b.end();jt++) {
+						cout << "\tedge " << (*jt)->getID() << endl;
+					}
+				}
+			}
+		}*/
 	}
 
 	if ( button==GLUT_LEFT_BUTTON && state==GLUT_UP ) {
@@ -179,6 +699,12 @@ void myPassiveMotionFunc(int x, int y) {
 //-------------------------------------------------------------------------------
 /// Initialize the environment
 int main(int argc,char** argv) {
+	cout << "Top edge connected to bottom edge (center hole gives +1 to genus)\n";
+	cout << "Please enter desired genus: ";
+	cin >> genus;
+	genus --;
+	prevClick = NULL;
+
 	//Initialize OpenGL
 	glutInit(&argc,argv);
 	glutInitDisplayMode(GLUT_DOUBLE|GLUT_RGBA);
@@ -201,11 +727,10 @@ int main(int argc,char** argv) {
 	//in the current directory, with the prefix "morph"
 	imgSaver = new UCB::ImageSaver("./", "map");
 
-
 	//Create OpenGL Window
 	glutInitWindowSize(viewport.w,viewport.h);
 	glutInitWindowPosition(0,0);
-	glutCreateWindow("Crawler");
+	glutCreateWindow("HandleMap");
 	glClearColor(0.3f,0.3f,0.3f,0.0f);
 	glutSetCursor(GLUT_CURSOR_CROSSHAIR);
 	glLineStipple(1, (short) 0x5555);
@@ -218,6 +743,9 @@ int main(int argc,char** argv) {
 	glutMouseFunc(myMouseFunc);
 	glutMotionFunc(myActiveMotionFunc);
 	glutPassiveMotionFunc(myPassiveMotionFunc);
+
+	//Make Groups
+	instance = Group(genus);
 
 	//And Go!
 	glutMainLoop();

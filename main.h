@@ -12,12 +12,16 @@
 
 #include "global.h"
 
-#include "net.h"
+#include "group.h" // REPLACE GROUP AND NET WITH REGION
+
+#include "region.h"
 
 #include "sector.h"
 
 #include <sstream>
 
 #include <map>
+
+#include "colorpicker.h"
 
 #endif /* MAIN_H_ */

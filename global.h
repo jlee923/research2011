@@ -28,8 +28,15 @@
 #endif
 
 //Include our math library
-#include <algebra3.h>
+#include "algebra3.h"
 //Include our Image Saving library.
 #include "UCB/ImageSaver.h"
+//Include the string library
+#include <string.h>
 
+/*class Vertex;
+class HalfEdge;
+static map<string, Vertex> vertexMap;		// Each vertex has a position. For determining if x,y positions already in use.
+static map<string, HalfEdge> halfEdgeMap;  // general map for halfedges (unique string ID identifies each halfedge)
+*/
 #endif /* GLOBAL_H_ */
