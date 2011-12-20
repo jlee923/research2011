@@ -28,6 +28,9 @@ public:
 	void setPartner(Vertex* ver) {partner = ver;}
 	Vertex* getPartner() {return partner;}
 
+	// sends the translated click point
+	bool pointOnVert(vec2 clickedPt);
+
 	void addEdge(HalfEdge& edge); // adds edges to the neighbor's vector, which specifies all the edges coming out of the vertex
 	
 protected:

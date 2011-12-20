@@ -7,22 +7,22 @@ vec3 ColorPicker::pickNextColor(void){
 
 		if (alpha < 60) {
 			beta = alpha;
-			i = 0;j = 1;	k = 2;
+			i = 0; j = 1; k = 2;
 		} else if (alpha < 120) {
 			beta = 120 - alpha;
-			i = 1;	j = 0;k = 2;
+			i = 1; j = 0; k = 2;
 		} else if (alpha < 180) {
 			beta = alpha - 120;
-			i = 1;	j = 2;k = 0;
+			i = 1; j = 2; k = 0;
 		} else if (alpha < 240) {
 			beta = 240 - alpha;
-			i = 2;j = 1;	k = 0;
+			i = 2; j = 1; k = 0;
 		} else if (alpha < 300) {
 			beta = alpha - 240;
-			i = 2;j = 0;k = 1;
+			i = 2; j = 0; k = 1;
 		} else {
 			beta = 360 - alpha;
-			i = 0;j = 2;k = 1;
+			i = 0; j = 2; k = 1;
 		}
 
 		if (beta < 30) {

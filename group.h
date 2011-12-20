@@ -19,6 +19,7 @@ public:
 	void draw();
 	map<unsigned int,Sector*> getSectors() { return baseRegion.getSectors(); }
 	vector<HalfEdge*> getHalfEdges() { return baseRegion.getHalfEdges(); }
+	vector<Vertex*> getVertices() { return baseRegion.getVertices(); }
 	void addSector(Sector * s) { baseRegion.addSector(s); }
 	void removeSector(Sector * s) { baseRegion.removeSector(s); }
 	

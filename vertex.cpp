@@ -26,9 +26,10 @@ void Vertex::draw() {
 }
 
 void Vertex::draw(vec2* t) {
+	glPointSize(12);
 	glBegin(GL_POINTS);
 	glColor3f(0.9,0.2,0.2);
-	glVertex2d(pos[0],pos[1]);
+	glVertex2d(pos[0]+(*t)[0],pos[1]+(*t)[1]);
 	glEnd();
 }
 
@@ -41,4 +42,17 @@ void Vertex::draw(vector<vec2>* trans) {
 		glVertex2d(pos[0]+x,pos[1]+y);
 		glEnd();
 	}
+}
+
+bool Vertex::pointOnVert(vec2 clickedPt) {
+	double xClick = clickedPt[0];
+	double yClick = clickedPt[1];
+	double xMe = pos[0];
+	double yMe = pos[1];
+
+	double xDiff = pow(abs(xClick - xMe), 2);
+	double yDiff = pow(abs(yClick - yMe), 2);
+
+	return (sqrt (xDiff + yDiff) <= 0.0175);
+
 }

@@ -261,6 +261,14 @@ Region::Region(int regions, vector<vec2> trans) {
 	bottomurBounds[4]->setNextSibling(bottomulBounds[1]);
 	bottomlrBounds[4]->setNextSibling(bottomllBounds[1]);
 
+	urBounds[4]->setOperChange(1);
+	ulBounds[1]->setOperChange(-1);
+	lrBounds[4]->setOperChange(1);
+	llBounds[1]->setOperChange(-1);
+	bottomurBounds[4]->setOperChange(1);
+	bottomulBounds[1]->setOperChange(-1);
+	bottomlrBounds[4]->setOperChange(1);
+	bottomllBounds[1]->setOperChange(-1);
 
 }
 
@@ -294,4 +302,14 @@ void Region::addSector(Sector * s){
 void Region::removeSector(Sector * s) {
 	cout << s->getLabel() << endl;
 	sectors.erase(s->getLabel());
+}
+
+vector<Vertex*> Region::getVertices() {
+	vector<Vertex *> verts;
+	for(map<unsigned int, Sector*>::iterator it = sectors.begin(); it!=sectors.end(); it++) {
+		if (it->second->getVertex() != NULL) {
+			verts.push_back(it->second->getVertex());
+		}
+	}
+	return verts;
 }

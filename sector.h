@@ -43,13 +43,13 @@ public:
 	void setBounds(vector<Vertex *> newBounds) {bounds = newBounds;}
 
 	vector<HalfEdge*> getBounds(); 	// returns a list of the bounding edges for this sector
-	vector<HalfEdge*> getPermiableEdges();	// returns a list of the bounded edges that can be passed
+	vector<HalfEdge*> getPermiableEdges();	// returns a list of the bounded edges in this sector that can be passed
 	
-	// indicates whether or not this sector has a vertex placed in it
-	// if there is then make a copy of the vertex
-	Vertex * getVertex() {
-		return vertex;
-	}
+	// indicates whether or not this sector has a vertex placed in it and return pointer to it
+	Vertex * getVertex() { return vertex; }
+
+	// should call this from region, so that we can keep track of vertices
+	void setVertex(Vertex * v) { vertex = v; }
 								
 	vector<Sector> getNeighborSectors(); // returns a list of the neighboring sectors that are accessable 
 
@@ -59,7 +59,10 @@ public:
 	
 	void fill(vec3 c, int reg) {color[reg] = c;}	// floods this sector with the 'color'
 	
+	void setColors(vector<vec3> col) { color = col; };
+	void setColor(vec3 col, int op) { color[op] = col; };
 	vec3 getColor(int reg) { return color[reg];}	// returns the 'color' for this sector
+	vector<vec3> getColors() { return color; };
 	
 	void setLabel(unsigned int l) { label = l;} // label of this sector
 
@@ -67,7 +70,8 @@ public:
 	
 	int getLabel() {return label;}
 
-	// splits a given edge and it's sibling
+	// splits a given edge and it's sibling.. forward pointers are new (me and sib are kept in back)
+	// returns me
 	static HalfEdge * splitEdge(HalfEdge * me);
 
 	// merges a given edge and it's forward edge (also siblings)
@@ -77,10 +81,17 @@ public:
 	// shouldn't need this... just do a check on the individual sector ids
 	static bool isSameSector(HalfEdge * e1, HalfEdge * e2);
 
+	// given pathEdge (e1) and destination edge (e2) of 2 divided edges on each side of division, divides sector
 	static Sector * divide(HalfEdge * e1, HalfEdge * e2);
 	// given pathEdge, locate edges to be deleted (forward->sibling->forward + forward->sibling->forward->sibling)
 	// return Sector to remove
+	// general undoPath (from boundary edge to boundary edge)
 	static Sector * undoPath (HalfEdge * pathEdge);
+	// undoPath specific for termination of a path (goes to a vertex) inputs are same edges that were provided for divide
+	static Sector * undoPath (HalfEdge * lastPathEdge, HalfEdge * closestInEdge);
+
+	// starts a path from the vertex, returns the pathedge
+	HalfEdge * startPath(Vertex * v, HalfEdge * edge);
 
 	static Sector * merge(HalfEdge * m1);
 

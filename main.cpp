@@ -20,11 +20,10 @@ UCB::ImageSaver * imgSaver;
 Group instance;
 int genus;
 Sector *s,*p;
-vector<Sector*> sectors;
 // pathing
 bool split = false, merging = false, path = false, newPath = false;
 // vertices
-bool addVertex = false;
+bool addVertex = false, clickVert;
 
 /* pathEdge corresponds to: (after both edges split, before sector division)
  *  |                    ^
@@ -34,8 +33,9 @@ bool addVertex = false;
  *  |                    |
  *  v                    |
  */
-HalfEdge * pathEdge = NULL;
-
+HalfEdge * pathEdge = NULL;// * endVertEdge = NULL;
+Vertex * startVertex = NULL, * endVertex = NULL;
+vector<HalfEdge*> endVertEdges;
 vec2 prevClick; // world coordinates of previous click
 int oper = 0; // current region that is being operated on
 
@@ -105,40 +105,75 @@ void myKeyboardFunc (unsigned char key, int x, int y) {
 		case 'e':
 			cout << "Ending path" << endl;
 			if (newPath && (pathEdge != NULL)) {
-				// revert edges
+				// revert edges..?
 			}
 			path = false;
 			prevClick = NULL;
 			break;
 
 		case 'u':
-			if (!path) {
+			// should be able to make this more efficient
+			// also need to handle undo back to vertex
+			if (!path && endVertEdges.size() != 0) {
+				instance.removeSector(Sector::undoPath(pathEdge, endVertEdges.back()));
+				
+				path = true;
+				endVertEdges.pop_back();
+				glutPostRedisplay();
+				break;
+			} else if (!path) {
 				cout << "nothing to undo (path deleted)" << endl;
 				break;
-			}
-			cout << "Undo last move" << endl;
-			HalfEdge * deletedEdge = pathEdge->getForwardEdge()->getSibling()->getForwardEdge()->getSibling();
-			if (deletedEdge == pathEdge) {
-				cout << "revertting original edge and ending path" << endl;
-				Sector::mergeEdges(pathEdge);
-				path = false;
-				prevClick = NULL;
-				pathEdge = NULL;
+			} else {
+				cout << "Undo last move" << endl;
+				if (startVertex != NULL) {
+					map<unsigned int,Sector*> sects = instance.getSectors();
+					for(map<unsigned int,Sector*>::iterator it=sects.begin(); it!=sects.end(); it++){
+						if (it->second->getVertex() == startVertex) {
+							it->second->setVertex(NULL);
+							break;
+						}
+					}
+					addVertex = false;
+					path = false;
+					newPath = false;
+					pathEdge = NULL;
+					prevClick = NULL;
+					startVertex = NULL;
+					glutPostRedisplay();
+					break;
+				}
+				// might not need this check
+				HalfEdge * deletedEdge = pathEdge->getForwardEdge()->getSibling()->getForwardEdge()->getSibling();
+				if (deletedEdge == pathEdge) {
+					cout << "revertting original edge and ending path" << endl;
+					Sector::mergeEdges(pathEdge);
+					path = false;
+					prevClick = NULL;
+					pathEdge = NULL;
+					glutPostRedisplay();
+					break;
+				}
+				HalfEdge * newPathEdge, * forSibEdge;
+				newPathEdge = pathEdge->getSibling();
+				forSibEdge = pathEdge->getForwardEdge()->getSibling();
+				if (forSibEdge->getSector() == newPathEdge->getSector()) {
+					forSibEdge->setForwardEdge(newPathEdge);
+					Sector::mergeEdges(pathEdge);
+					pathEdge = NULL;
+					startVertex = deletedEdge->getVertex();
+					newPath = true;
+				} else {
+					while(newPathEdge->getForwardEdge() != deletedEdge) {
+						newPathEdge = newPathEdge->getForwardEdge();
+					}
+					instance.removeSector(Sector::undoPath(pathEdge));
+					pathEdge = newPathEdge;
+				}
+				cout << "success?" << endl;
 				glutPostRedisplay();
 				break;
 			}
-			HalfEdge * newPathEdge;
-			newPathEdge = pathEdge->getSibling();
-			while(newPathEdge->getForwardEdge() != deletedEdge) {
-				newPathEdge = newPathEdge->getForwardEdge();
-			}
-
-			instance.removeSector(Sector::undoPath(pathEdge));
-
-			pathEdge = newPathEdge;
-			cout << "success?" << endl;
-			glutPostRedisplay();
-			break;
 
 		case 'v':
 			cout << "Ending path (if applicable) and adding vertex" << endl;
@@ -146,6 +181,61 @@ void myKeyboardFunc (unsigned char key, int x, int y) {
 			path = false;
 			prevClick = NULL;
 			break;
+
+		case 'f':
+			cout << "flooding" << endl;
+			HalfEdge * pathLocals = pathEdge;
+			HalfEdge * endVertLocals = endVertEdges.back();
+			queue<pair<int, Sector*>> floodQueue;
+			queue<pair<int, Sector*>> startSectors;
+			vector<pair<int, Sector*>> doneSectors;
+			Sector * startSector = pathEdge->getSector();
+			for (int i = 0; i < genus; i ++) {
+				startSectors.push(pair<int, Sector*>(i, startSector));
+			}
+			// XXX when fix colorpicker, will need to adjust which colors to use here
+			ColorPicker cp;
+			vec3 floodColor;
+			pair<int, Sector*> tempPair, pushPair;
+			while(!startSectors.empty()) {
+				floodColor = cp.pickNextColor();
+				// need this first push because for loop shouldn't execute initially
+				floodQueue.push(startSectors.front());
+				for (vector<pair<int, Sector*>>::iterator it = doneSectors.begin(); it != doneSectors.end(); it ++) {
+					if (startSectors.front().second == (*it).second && startSectors.front().first == (*it).first) {
+						// first element should be next starting sector
+						floodQueue.pop();
+						break;
+					}
+				}
+				startSectors.pop();
+				while(!floodQueue.empty()) {
+					tempPair = floodQueue.front();
+					doneSectors.push_back(tempPair);
+					tempPair.second->fill(floodColor, tempPair.first);
+					floodQueue.pop();
+					vector<HalfEdge*> nextEdges = tempPair.second->getPermiableEdges();
+					for (vector<HalfEdge*>::iterator it = nextEdges.begin(); it != nextEdges.end(); it++) {
+						int operReg = tempPair.first+(*it)->getOperChange();
+						if (operReg < 0) operReg = genus-1;
+						else if(operReg == genus) operReg = 0;
+						pushPair = pair<int, Sector*>(operReg, (*it)->getSibling()->getSector());
+						for (vector<pair<int, Sector*>>::iterator it = doneSectors.begin(); it != doneSectors.end(); it ++) {
+							if (pushPair.second == (*it).second && pushPair.first == (*it).first) {
+								break;
+							} else if (it + 1 == doneSectors.end()) {
+								floodQueue.push(pushPair);
+							}
+						}
+						
+					}
+				}
+			}
+
+			cout << "testing a b" << endl;
+			glutPostRedisplay();
+			break;
+
 		/*
 		case 's':
 			cout << "Spliting ON" << endl;
@@ -204,13 +294,13 @@ void myMouseFunc( int button, int state, int x, int y ) {
 		//cout << "Clicked at world coord " << worldClick << endl;
 		vec2 newClick2;
 		vec2 newClick1 = instance.translateClick(&worldClick, &newClick2);
-
+		
 		vector<HalfEdge*> edges;
 		edges = instance.getHalfEdges();
 		cout << "Getting all halfedges" << endl;
 
 		for(vector<HalfEdge*>::iterator it=edges.begin();it!=edges.end();it++){
-			if ((*it)->pointOnEdge(newClick1) || (*it)->pointOnEdge(newClick2)){
+			if ((*it)->pointOnEdge(newClick1) || (*it)->pointOnEdge(newClick2)) {
 				edgeFound = *it;
 				HalfEdge * blah = edgeFound;
 				cout << "Found Edge: " << edgeFound->getID() << "; sibling is: " << edgeFound->getSibling()->getID() 
@@ -219,14 +309,23 @@ void myMouseFunc( int button, int state, int x, int y ) {
 			}
 		}
 
-		cout << "something else" << endl;
+		// use a for loop and a map<unsigned int, vertex> implementation (or vector)
+		vector<Vertex*> verts = instance.getVertices();
+		for (vector<Vertex*>::iterator it = verts.begin(); it != verts.end(); it++) {
+			if ((*it)->pointOnVert(newClick1)) {
+				endVertex = *it;
+				clickVert = true;
+				edgeFound = NULL;
+				break;
+			}
+		}
 		
-		if (path && (edgeFound != NULL)) {
+		if ((path || startVertex != NULL) && (edgeFound != NULL)) {
 			if (!edgeFound->canPass()) {
 				cout << "NOT ALLOWED TO PASS THROUGH HERE" << endl;
 				return;
 			}
-			if (prevClick == NULL) {
+			if (prevClick == NULL && startVertex == NULL) {
 				prevClick = worldClick;
 				cout << "Split the clicked edge" << endl;
 				// do it here?
@@ -235,13 +334,30 @@ void myMouseFunc( int button, int state, int x, int y ) {
 			} else {
 				//cout << worldClick[0] << " blahblahblah " << prevClick[0] << endl;.
 				if (newPath) {
+					cout << "in the new path phase" << endl;
+					newPath = false;
+					if (startVertex != NULL) {
+						if (edgeFound->getSector()->getVertex() != startVertex) {
+							edgeFound = edgeFound->getSibling();
+						}
+
+						pathEdge = edgeFound->getSector()->startPath(startVertex, edgeFound);
+						prevClick = worldClick;
+
+						startVertex = NULL;
+						glutPostRedisplay();
+						return;
+					}
+					else {
+					cout << "No vertex has been specified to start a new path" << endl;
+					}
 					/* Simply do a first-edge orientation.  Then, don't need to such a long loop for the
 					 * rest of the path.
 					 * 
 					 * the numbers might need to be updated, if you use a change of dimens --> might want 
 					 * to make that a global thing.
 					 */
-					if (worldClick[0] - prevClick[0] > 0.0125) {
+					/*if (worldClick[0] - prevClick[0] > 0.0125) {
 					cout << "going right" << endl;
 					HalfEdge * locals = pathEdge;
 					while (!(Sector::isSameSector(pathEdge, edgeFound) && 
@@ -477,52 +593,63 @@ void myMouseFunc( int button, int state, int x, int y ) {
 				else {
 					// default case?
 					cout << "um.... ?" << endl;
-				}
-				newPath = false;
-			} else {
-				if (!pathEdge->getSector()->isSameSector(pathEdge, edgeFound)) {
-					if (pathEdge->getSector()->isSameSector(pathEdge, edgeFound->getSibling())) {
-						edgeFound = edgeFound->getSibling();
-					} else {
-						cout << "invalid edge" << endl;
+				}*/
+				} else {
+					if (!pathEdge->getSector()->isSameSector(pathEdge, edgeFound)) {
+						if (pathEdge->getSector()->isSameSector(pathEdge, edgeFound->getSibling())) {
+							edgeFound = edgeFound->getSibling();
+						} else {
+							cout << "invalid edge" << endl;
+							return;
+						}
+					}
+					if (edgeFound == pathEdge || edgeFound == pathEdge->getForwardEdge()) {
+						cout << "same edge" << endl;
 						return;
 					}
-				}
-				if (edgeFound == pathEdge || edgeFound == pathEdge->getForwardEdge()) {
-					cout << "same edge" << endl;
-					return;
-				}
-				edgeFound->getSector()->splitEdge(edgeFound);
+					edgeFound->getSector()->splitEdge(edgeFound);
 
-				cout << "Found Edge: " << edgeFound->getID() << "; sibling is: " << edgeFound->getSibling()->getID() 
-					<< "; forward is: " << edgeFound->getForwardEdge()->getID() 
-					<< "; with sector: " << edgeFound->getSector()->getLabel()<< endl;
-				cout << "Prev Edge: " << pathEdge->getID() << "; sibling is: " << pathEdge->getSibling()->getID() 
-					<< "; forward is: " << pathEdge->getForwardEdge()->getID() 
-					<< "; with sector: " << pathEdge->getSector()->getLabel()<< endl;
-				////
-				HalfEdge * pathForward = edgeFound->getForwardEdge()->getSibling();
-				instance.addSector(pathEdge->getSector()->divide(pathEdge, edgeFound));
+					cout << "Found Edge: " << edgeFound->getID() << "; sibling is: " << edgeFound->getSibling()->getID() 
+						<< "; forward is: " << edgeFound->getForwardEdge()->getID() 
+						<< "; with sector: " << edgeFound->getSector()->getLabel()<< endl;
+					cout << "Prev Edge: " << pathEdge->getID() << "; sibling is: " << pathEdge->getSibling()->getID() 
+						<< "; forward is: " << pathEdge->getForwardEdge()->getID() 
+						<< "; with sector: " << pathEdge->getSector()->getLabel()<< endl;
+					////
+					HalfEdge * pathForward = edgeFound->getForwardEdge()->getSibling();
+					instance.addSector(pathEdge->getSector()->divide(pathEdge, edgeFound));
 				
-				pathEdge = pathForward;
-				if (worldClick[0] < -0.9 + 0.0125) {
-					prevClick = worldClick;
-					prevClick[0] = -prevClick[0];
-				} else {
-					prevClick = worldClick;
-				}
+					pathEdge = pathForward;
+					if (worldClick[0] < -0.9 + 0.0125) {
+						prevClick = worldClick;
+						prevClick[0] = -prevClick[0];
+					} else {
+						prevClick = worldClick;
+					}
 
-				if (abs(worldClick[1]) > 0.85 - 0.0125) {
-					prevClick = worldClick;
-					prevClick[1] = -prevClick[1];
-				} else {
-					prevClick = worldClick;
-				}
+					if (abs(worldClick[1]) > 0.85 - 0.0125) {
+						prevClick = worldClick;
+						prevClick[1] = -prevClick[1];
+					} else {
+						prevClick = worldClick;
+					}
 
-			}
+				}
 			cout << "reached end of if" << endl;
 			}
-		} else {
+		}
+		else if (clickVert && path) {
+			cout << "I want to end the path" << endl;
+			HalfEdge * closestInEdge = pathEdge->getForwardEdge();
+			while (closestInEdge->getForwardEdge()->getVertex() != endVertex) {
+				closestInEdge = closestInEdge->getForwardEdge();
+			}
+			instance.addSector(pathEdge->getSector()->divide(pathEdge, closestInEdge));
+			path = false;
+			clickVert = false;
+			endVertEdges.push_back(closestInEdge);
+		} 
+		else {
 			if (path) {
 				cout << "AM I HERE??" << endl;
 				// I have a path... so, place an intermediate vertex at the specified location --> do it here?
@@ -531,7 +658,7 @@ void myMouseFunc( int button, int state, int x, int y ) {
 			map<unsigned int,Sector*> sectors = instance.getSectors();
 			for(map<unsigned int,Sector*>::iterator it=sectors.begin(); it!=sectors.end(); it++){
 				if(it->second->pointInSector(newClick1)) { // won't be newClick2, since that is untranslated
-				
+					
 					if ((split || (path && pathEdge != NULL))) {
 						//splitSectorEdges = it->second->getBounds();
 						cout << " try here " << endl;
@@ -545,11 +672,22 @@ void myMouseFunc( int button, int state, int x, int y ) {
 					for(vector<HalfEdge*>::iterator jt = b.begin();jt!=b.end();jt++) {
 						cout << "\tedge " << (*jt)->getID() << endl;
 					}
-				}
-			}
-
+						
+					if (addVertex && edgeFound == NULL) {
+						Vertex* startPoint = new Vertex(newClick1);
+						it->second->setVertex(startPoint);
+						addVertex = false;
+						startVertex = startPoint;
+						newPath = true;
+						path = true;
+					} else {
+						cout << "clicked too close to edge, please try again" << endl;
+								
+					}		
+				}	
+			}	
+				
 		}
-
 
 		/*
 		vector<HalfEdge*> edges;

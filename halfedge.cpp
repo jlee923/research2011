@@ -7,6 +7,7 @@ HalfEdge::HalfEdge() {
 	//type = NULL;
 	sector = NULL;
 	id = halfEdgeCount++;
+	operChange = 0;
 }
 
 // General HalfEdge with uninitialized forward and sibling pointers
@@ -21,6 +22,7 @@ HalfEdge::HalfEdge(Vertex* v) {
 	sibling = NULL;
 	forwardEdge = NULL;
 	id = halfEdgeCount++;
+	operChange = 0;
 	//type = 0;
 }
 
@@ -128,6 +130,7 @@ void HalfEdge::setSameSibling(HalfEdge *s, vector<vec3> color) {
 	s->sibling = this;
 }
 
+// i don't remember what i was doing with this...
 void HalfEdge::setSibling(HalfEdge *s, vector<vec3> color) {
 	vec2 endPos = s->getForwardEdge()->getPos(0.0);
 	setSameSibling(s, color);
@@ -226,13 +229,6 @@ bool HalfEdge::inPlane(vec2 clickedPt) {
 	if (endPt[0] < startPt[0])  return clickedPt[1] < (m*(clickedPt[0]-startPt[0]) + startPt[1]);
 	else return clickedPt[1] > (m*(clickedPt[0]-startPt[0]) + startPt[1]);
 
-}
-
-HalfEdge::~HalfEdge() {
-	delete _startPos;     // Vertex of general halfedge starting position
-	delete &color;
-	delete &colors;
-	delete &id;
 }
 
 unsigned int HalfEdge::halfEdgeCount = 0;

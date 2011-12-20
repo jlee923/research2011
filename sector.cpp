@@ -15,6 +15,8 @@ Sector::Sector(HalfEdge * edge) {
 		edge->sector = this;
 		edge = edge->forwardEdge;
 	} while (edge != sectorEdge);
+
+	color = vector<vec3>(4, NULL);
 }
 
 
@@ -47,6 +49,9 @@ Sector::Sector(vector<Vertex*> corners) {
 			prev = temp;
 		}
 	}
+
+	color = vector<vec3>(4, NULL);
+	
 }
 
 
@@ -77,15 +82,70 @@ void Sector::draw(vec2 *t) {
 	double x = (*t)[0];
 	double y = (*t)[1];
 	//draw the interior of the sector
-	glBegin(GL_POLYGON);
-	glColor3f(0.2,0.2,.9);
-	HalfEdge * point = sectorEdge->getForwardEdge();
-	glVertex2d((sectorEdge->getPos(0.0)[0] + x), (sectorEdge->getPos(0.0)[1] + y));
-	while (point != sectorEdge) {
-		glVertex2d((point->getPos(0.0)[0]+x),(point->getPos(0.0)[1]+y));
-		point = point->getForwardEdge();
+	if (bounds.size() < 4) {
+		int me = oper;
+		vector<vec3> check = color;
+		if (color[oper] == NULL) {
+			glColor3f(0.2,0.2,.9);
+		} else {
+			vec3 currCol = color[oper];
+			glColor3f(currCol[0], currCol[1], currCol[2]);
+		}
+		glBegin(GL_POLYGON);
+		HalfEdge * point = sectorEdge->getForwardEdge();
+		glVertex2d((sectorEdge->getPos(0.0)[0] + x), (sectorEdge->getPos(0.0)[1] + y));
+		while (point != sectorEdge) {
+			//if (label == 3) {
+			//	cout << point->getPos(0.0)[0] << "x" << point->getPos(0.0)[1] << "y" << endl;
+			//}
+			glVertex2d((point->getPos(0.0)[0]+x),(point->getPos(0.0)[1]+y));
+			point = point->getForwardEdge();
+		}
+		glEnd();
+	} 
+	// OpenGL only draws primitive polygons, so it can't do convex shapes.. which are necessary,
+	// so do it here with triangles
+	// VERY IMPORTANT THAT STARTING PATH VERTICES/EDGES ARE NOT MADE SECTOR EDGES
+	else {
+		vector<HalfEdge*> forward, backward;
+		HalfEdge * track = sectorEdge->getForwardEdge();
+		forward.push_back(sectorEdge);
+		while (track != sectorEdge) {
+			forward.push_back(track);
+			track = track->getForwardEdge();
+		}
+		vector<HalfEdge*>::iterator forwardIt = forward.begin();
+		vector<HalfEdge*>::reverse_iterator backwardIt = forward.rbegin();
+		if (color[oper] == NULL) {
+			glColor3f(0.2,0.2,.9);
+		} else {
+			vec3 currCol = color[oper];
+			glColor3f(currCol[0], currCol[1], currCol[2]);
+		}
+
+		glBegin(GL_QUAD_STRIP);
+		glVertex2d((*forwardIt)->getPos(0.0)[0]+x, (*forwardIt)->getPos(0.0)[1]+y);
+		forwardIt++;
+		bool back = false; // back = true, use backward; false, use forward
+		while((*forwardIt) != (*backwardIt)) {
+			if (back) {
+				glVertex2d((*backwardIt)->getPos(0.0)[0]+x, (*backwardIt)->getPos(0.0)[1]+y);
+				backwardIt++;
+				back = false;
+			} else {
+				glVertex2d((*forwardIt)->getPos(0.0)[0]+x, (*forwardIt)->getPos(0.0)[1]+y);
+				forwardIt++;
+				back = true;
+			}
+		}
+		glVertex2d((*forwardIt)->getPos(0.0)[0]+x, (*forwardIt)->getPos(0.0)[1]+y);
+		if (forward.size()%2 == 1) {
+			glVertex2d((*forwardIt)->getPos(0.0)[0]+x, (*forwardIt)->getPos(0.0)[1]+y);
+		}
+		glEnd();
 	}
-	glEnd();
+
+
 	
 
 	//draw exterior of sector
@@ -116,6 +176,21 @@ void Sector::draw(vec2 *t) {
 
 ///////////////////////////////////
 
+vector<HalfEdge*> Sector::getPermiableEdges() {
+	vector<HalfEdge*> permEdges;
+	if (sectorEdge->canPass()) {
+		permEdges.push_back(sectorEdge);
+	}
+	HalfEdge * temp = sectorEdge->getForwardEdge();
+	while(temp != sectorEdge) {
+		if (temp->canPass()) {
+			permEdges.push_back(temp);
+		}
+		temp = temp->getForwardEdge();
+	}
+	return permEdges;
+}
+
 void Sector::print() {
 	vector<HalfEdge *> myBounds;
 	for (vector<HalfEdge *>::iterator it = myBounds.begin(); it != myBounds.end() ; it++ ) {
@@ -134,7 +209,7 @@ HalfEdge * Sector::splitEdge(HalfEdge * me) {
 	HalfEdge * newMyFor, * newSibFor;
 	if (mp1 == mp2) {
 		// on 2-d plane, vertex is the same point
-		//XXX DO A CHECK FOR EDGETYPE
+		//XXX DO A CHECK FOR EDGETYPE?
 		Vertex * mid1 = new Vertex(mp1);
 		newMyFor = new Boundary(mid1);
 		newSibFor = new Boundary(mid1);
@@ -151,6 +226,8 @@ HalfEdge * Sector::splitEdge(HalfEdge * me) {
 	newMyFor->setForwardEdge(myFor);
 	sib->setForwardEdge(newSibFor);
 	newSibFor->setForwardEdge(sibFor);
+	newMyFor->setOperChange(me->getOperChange());
+	newSibFor->setOperChange(sib->getOperChange());
 
 	// set sectors
 	newMyFor->setSector(me->getSector());
@@ -180,6 +257,11 @@ bool Sector::isSameSector(HalfEdge * e1, HalfEdge * e2) {
 // given pathEdge (e1) and destination edge (e2) of 2 divided edges on each side of division, divides sector
 Sector * Sector::divide(HalfEdge * e1, HalfEdge * e2) {
 	Sector * original = e1->getSector();
+	Vertex * vert = NULL;
+	if (original->getVertex() != NULL) {
+		vert = original->getVertex();
+		original->setVertex(NULL);
+	}
 	Vertex * m1 = e1->getForwardEdge()->_startPos;
 	Vertex * m2 = e2->getForwardEdge()->_startPos;
 	HalfEdge * e1For = e1->getForwardEdge();
@@ -236,7 +318,20 @@ Sector * Sector::divide(HalfEdge * e1, HalfEdge * e2) {
 	e1->getSector()->setBounds(newBounds);
 	original->sectorEdge = e1;
 
-	return new Sector(e2);
+	HalfEdge* e2Point = e2;
+	while (e2Point->iAm() == 0) {
+		e2Point = e2Point->getForwardEdge();
+	}
+	Sector * returnSect = new Sector(e2Point);
+	if (vert != NULL && original->pointInSector(vert->getPos())) {
+		original->setVertex(vert);
+	} else if (vert != NULL) {
+		returnSect->setVertex(vert);
+	}
+
+	returnSect->setColors(original->getColors());
+
+	return returnSect;
 }
 
 
@@ -258,8 +353,12 @@ Sector * Sector::undoPath(HalfEdge * pathEdge) {
 		removeSector = pathSib->getSector();
 	}
 
-	Sector * one = delEdge->getSector();
-	Sector * two = delSibEdge->getSector();
+	if (removeSector->getVertex() != NULL) {
+		keepSector->setVertex(removeSector->getVertex());
+	}
+
+	//Sector * one = delEdge->getSector();
+	//Sector * two = delSibEdge->getSector();
 
 	HalfEdge * newPathEdge;
 	newPathEdge = pathEdge->getSibling();
@@ -275,25 +374,69 @@ Sector * Sector::undoPath(HalfEdge * pathEdge) {
 	newBounds.push_back(newPathEdge->_startPos);
 	newPathEdge->setSector(keepSector);
 	HalfEdge * setSectorLabels = newPathEdge->getForwardEdge();
-	cout << "failed before while" << endl;
+	//cout << "failed before while" << endl;
 	while (setSectorLabels != newPathEdge) {
 		newBounds.push_back(setSectorLabels->_startPos);
 		setSectorLabels->setSector(keepSector);
 		setSectorLabels = setSectorLabels->getForwardEdge();
 	}
 
-	cout << "failed after while" << endl;
+	//cout << "failed after while" << endl;
 
 	//delete(delSibEdge);
 	//delete(newPathFor);
 
-	cout << "failed at delete" << endl;
+	//cout << "failed at delete" << endl;
 
 	keepSector->setBounds(newBounds);
 
 	mergeEdges(pathEdge);
-	cout << "end of undo" << endl;
+	//cout << "end of undo" << endl;
 	return removeSector;
+}
+
+Sector * Sector::undoPath(HalfEdge * lastPathEdge, HalfEdge * closestInEdge) {
+	/*
+	HalfEdge * remove1 = closestInEdge->getForwardEdge();
+	HalfEdge * remove2 = remove1->getSibling();
+	Sector * keepSect = remove2->getSector();
+	Sector * removeSect = closestInEdge->getSector();
+
+	HalfEdge * track = remove2;
+	while(track->getForwardEdge() != remove2) {
+		track = track->getForwardEdge();
+	}
+	lastPathEdge = track;
+
+	lastPathEdge->setForwardEdge(remove2->getForwardEdge());
+	closestInEdge->setForwardEdge(remove1->getForwardEdge());
+	*/
+	
+	HalfEdge * remove1 = lastPathEdge->getForwardEdge();
+	HalfEdge * remove2 = closestInEdge->getForwardEdge();
+	Sector * keepSect = lastPathEdge->getSector();
+	Sector * removeSect = closestInEdge->getSector();
+
+	closestInEdge->setForwardEdge(remove1->getForwardEdge());
+	lastPathEdge->setForwardEdge(remove2->getForwardEdge());
+	
+	vector<Vertex *> newBounds;
+	newBounds.push_back(lastPathEdge->_startPos);
+	HalfEdge * setSectorLabels = lastPathEdge->getForwardEdge();
+	while (setSectorLabels != lastPathEdge) {
+		newBounds.push_back(setSectorLabels->_startPos);
+		setSectorLabels->setSector(keepSect);
+		setSectorLabels = setSectorLabels->getForwardEdge();
+	}
+
+	if (removeSect->getVertex() != NULL) {
+		keepSect->setVertex(removeSect->getVertex());
+	}
+
+	keepSect->setBounds(newBounds);
+
+	return removeSect;
+
 }
 
 void Sector::mergeEdges(HalfEdge * me) {
@@ -312,11 +455,79 @@ void Sector::mergeEdges(HalfEdge * me) {
 	//delete(sibFor);
 }
 
+HalfEdge * Sector::startPath(Vertex * v, HalfEdge * edge) {
+	HalfEdge * pathEdge = Sector::splitEdge(edge)->getForwardEdge()->getSibling();
+	
+	Vertex * goToVert = edge->getForwardEdge()->_startPos;
+	// if sibling is also forward pointer
+	bool sameForPointer = false;
+
+	HalfEdge * outEdge = new Path(v);
+	HalfEdge * inEdge = new Path(goToVert);
+
+	HalfEdge * edgeFor = edge->getForwardEdge();
+	edge->setForwardEdge(inEdge);
+	outEdge->setForwardEdge(edgeFor);
+	HalfEdge * temp;
+	temp = edgeFor;
+	// looping around from the out-pointer, if i reach "edge", then only 1 sector
+	// if i reach the current vertex, then there exists another path to this vertex (other paths)
+	while (temp->_startPos != v) {
+		if (temp == edge) {
+			sameForPointer = true;
+			break;
+		}
+		temp = temp->getForwardEdge();
+	}
+	if (sameForPointer) {
+		inEdge->setForwardEdge(outEdge);
+	} else {
+		// false, so temp currently other inEdge
+		temp->setForwardEdge(outEdge);
+		inEdge->setForwardEdge(temp->getSibling());
+	}
+
+	ColorPicker cp;
+	vector<vec3> colors;
+	for (int i = 0; i < genus; i++) {
+		colors.push_back(cp.pickNextColor());
+	}
+	inEdge->setSameSibling(outEdge, colors);
+
+	vector<Vertex*> newBounds;
+	temp = edge->getForwardEdge();
+	newBounds.push_back(edge->_startPos);
+	while (temp != edge) {
+		newBounds.push_back(edge->_startPos);
+		temp= temp->getForwardEdge();
+	}
+
+	inEdge->setSector(edge->getSector());
+	outEdge->setSector(edge->getSector());
+	bounds = newBounds;
+	sectorEdge = edge;
+	return pathEdge;
+}
 
 /* ==========================================================================
 	Past semester stuff... re-wrote, so probably delete
    ==========================================================================
 */
+// want this one
+bool Sector::pointInSector(vec2 clickedPt) {
+	// For each half-edge on the sector's boundary, check that the clicked point lies in the half-plane determined by that half-edge
+	HalfEdge * current = sectorEdge;
+
+	do{
+
+	if (!current->inPlane(clickedPt)) return false;
+	current = current->getForwardEdge();
+
+	} while (current!=sectorEdge);
+
+	return true;
+
+}
 
 Sector * Sector::split(HalfEdge * e1, HalfEdge *  e2) {
 	Sector * thisSector = e1->getSector();
@@ -453,23 +664,7 @@ Sector * Sector::split(HalfEdge * e1, HalfEdge *  e2) {
 }
 
 
-bool Sector::pointInSector(vec2 clickedPt) {
 
-	// For each half-edge on the sector's boundary, check that the clicked point lies in the half-plane determined by that half-edge
-
-	HalfEdge * current = sectorEdge;
-
-	do{
-
-	if (!current->inPlane(clickedPt)) return false;
-	current = current->getForwardEdge();
-
-
-	} while (current!=sectorEdge);
-
-	return true;
-
-}
 
 Sector * Sector::merge(HalfEdge * m1) {
 	Sector * toBeKept = m1->sector;

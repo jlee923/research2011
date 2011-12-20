@@ -49,7 +49,6 @@ public:
 	// HalfEdge with initializing vertex
 	HalfEdge::HalfEdge(Vertex* v);
 	//HalfEdge::HalfEdge(Vertex* v, int typ);
-	HalfEdge::~HalfEdge();
 
 	// set halfedge to be equal to another
 	HalfEdge& operator = (const HalfEdge& e);
@@ -79,6 +78,10 @@ public:
 		return forwardEdge;
 	}
 	
+	// identifies how the region of operation changes when accessing sibling (+1 to right, -1 to left, 0 for same)
+	void setOperChange(int dir) {operChange = dir;};
+	int getOperChange() {return operChange;};
+	
 	// set a given forward edge with ID
 	void setForwardEdge(HalfEdge *f);
 
@@ -103,6 +106,8 @@ public:
 	
 	// sets the sector that this halfedge belongs to
 	void setSector(Sector *s) { sector = s; }
+
+	Vertex * getVertex () { return _startPos; }
 	
 	virtual bool canPass() { 
 		if (iAm() == _BOUNDARY) return true;//(type == 1) return true; 
@@ -128,6 +133,7 @@ protected:
 	vec3 color;
 	vector<vec3> colors;
 	unsigned int id;
+	int operChange;
 	static unsigned int halfEdgeCount;
 };
 
@@ -168,7 +174,7 @@ class Boundary : public HalfEdge {
 		void Boundary::draw(vec2 *trans) {
 			double x = (*trans)[0];
 			double y = (*trans)[1];
-			glLineWidth(5.0);
+			glLineWidth(3.0);
 			glBegin(GL_LINES);
 			glColor3f(colors[oper][0],colors[oper][1],colors[oper][2]);
 			glVertex2d(x + getPos(0.0)[0], getPos(0.0)[1] + y);
@@ -192,7 +198,7 @@ class Pole: public HalfEdge {
 		void Pole::draw(vec2 *trans) {
 			double x = (*trans)[0];
 			double y = (*trans)[1];
-			glLineWidth(5.0);
+			glLineWidth(3.0);
 			glBegin(GL_LINES);
 			glColor3f(colors[oper][0],colors[oper][1],colors[oper][2]);
 			glVertex2d(x + getPos(0.0)[0], getPos(0.0)[1] + y);

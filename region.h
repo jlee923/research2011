@@ -20,6 +20,9 @@ public:
 	void draw(vec2 trans); // draw the net given a transformation matrix
 	map<unsigned int, Sector*> getSectors() {return sectors;}
 	vector<HalfEdge*> getHalfEdges();
+	// later just want to return vertices
+	vector<Vertex*> getVertices();
+
 	void addSector(Sector * s);
 	void removeSector(Sector * s);
 protected:
